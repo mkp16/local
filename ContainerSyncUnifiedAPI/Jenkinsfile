@@ -1,0 +1,125 @@
+node('maven'){
+
+    try{
+
+stage('Set Vars'){
+
+	oc_set_vars()	
+
+}
+
+stage('Checkout'){		//get latest code
+
+	checkout scm
+
+    }
+
+/*stage('checkout'){
+
+    git branch:"develop_pd77",credentialsId:'raj-creds',url:'https://github.com/MensWearhouse/trackit.git'
+
+    }*/
+
+stage('maven build'){
+
+    sh '''
+
+    cd ContainerSyncUnifiedAPI
+
+
+
+    mvn clean package '''
+
+  }
+
+  if(env.OC_ENV=='dev'){
+
+    stage('OpenShift Build Image'){	//pass jar to openshift for S2I build and verify build completion
+
+        archiveArtifacts 'ContainerSyncUnifiedAPI/target/ContainerSyncUnifiedAPI-0.0.1-SNAPSHOT.jar'
+
+        sh "rm -rf oc-build && mkdir -p oc-build/deployments"
+
+        //sh "mkdir -p oc-build/deployments/logs"
+
+        sh "cp ContainerSyncUnifiedAPI/target/ContainerSyncUnifiedAPI-0.0.1-SNAPSHOT.jar oc-build/deployments/containersyncunifiedapi.jar"
+
+        sh """oc start-build batch-containersyncunifiedapi --from-dir=oc-build -n supply-chain-management-dev --follow"""
+
+    }  
+
+}
+
+else {
+
+    stage('OpenShift Build Image'){	//pass jar to openshift for S2I build and verify build completion
+
+        archiveArtifacts 'ContainerSyncUnifiedAPI/target/ContainerSyncUnifiedAPI-0.0.1-SNAPSHOT.jar'
+
+        sh "rm -rf oc-build && mkdir -p oc-build/deployments"
+
+        //sh "mkdir -p oc-build/deployments/logs"
+
+        sh "cp ContainerSyncUnifiedAPI/target/ContainerSyncUnifiedAPI-0.0.1-SNAPSHOT.jar oc-build/deployments/containersyncunifiedapi.jar"
+
+        sh """oc start-build batch-containersyncunifiedapi --from-dir=oc-build -n supply-chain-management --follow"""
+
+
+
+
+
+
+
+
+
+    }
+
+}   
+
+    } 
+
+    catch (any) { //catch failures and send mail when they occur
+
+        currentBuild.result == "FAILURE"
+
+        throw any   //rethrow exception to prevent the build from proceeding
+
+    } finally {
+
+	if (currentBuild.getPreviousBuild().getResult().toString() != "SUCCESS") {
+
+        mail body: "'${env.JOB_NAME}' (${env.BUILD_NUMBER}) back to normal,see ${env.BUILD_URL}",subject: "'${env.JOB_NAME}' (${env.BUILD_NUMBER}) to successful",to: 'ApplicationSupport@tmw.com' 
+
+	}
+
+        step([$class: 'Mailer', notifyEveryUnstableBuild:true, recipients: 'ApplicationSupport@tmw.com', sendToIndividuals: true])
+
+    }
+
+}
+
+def oc_set_vars(){	//function for getting DEV or TEST environment                        
+
+    if( env.JOB_BASE_NAME=="Trackit-batch-ContainerSyncUnifiedAPI-Dev") { //check if branch is a release branch, if so, you're running this in TEST
+
+    env.OC_ENV='dev'
+
+	env.SERVICE='batch-ContainerSyncUnifiedAPI'     //tell pipeline what service it is using
+
+    }
+
+	else {
+
+		env.JOB_BASE_NAME=="Trackit-batch-ContainerSyncUnifiedAPI-Dev"
+
+        env.SERVICE='batch-ContainerSyncUnifiedAPI'
+
+		env.OC_ENV='prod'
+
+	sh "echo deploying to production"
+
+    }
+
+
+
+}
